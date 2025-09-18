@@ -1,0 +1,334 @@
+// ==UserScript==
+// @name         Tiller Auto Typer - Complete
+// @namespace    http://tampermonkey.net/
+// @version      5.0
+// @description  Auto types letters - Press MINUS key to toggle
+// @author       AutoTyper
+// @match        https://tillerquest.tiller.blog/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    
+    console.log('🚀 TILLER AUTO TYPER STARTING...');
+    
+    let autoTypeEnabled = false;
+    let isTyping = false;
+    let typingInterval;
+    let statusIndicator;
+    
+    // Force create visible UI
+    function forceCreateUI() {
+        console.log('🎨 FORCE CREATING UI...');
+        
+        // Remove any existing
+        const existing = document.getElementById('auto-typer-ui');
+        if (existing) {
+            existing.remove();
+            console.log('🗑️ Removed existing UI');
+        }
+        
+        // Create new indicator
+        const indicator = document.createElement('div');
+        indicator.id = 'auto-typer-ui';
+        
+        indicator.innerHTML = `
+            <div style="font-size: 20px; font-weight: bold; margin-bottom: 10px;">🤖 AUTO TYPER</div>
+            <div id="status-display" style="font-size: 16px; padding: 8px; background: rgba(255,255,255,0.2); border-radius: 5px; margin: 8px 0;">
+                STATUS: OFF
+            </div>
+            <div id="letter-display" style="font-size: 14px; margin: 8px 0; color: yellow;">
+                LETTER: Searching...
+            </div>
+            <div style="font-size: 12px; margin-top: 10px; opacity: 0.9; line-height: 1.4;">
+                Press <strong>-</strong> (minus) to toggle<br>
+                Press <strong>=</strong> (equals) to stop
+            </div>
+        `;
+        
+        // Ultra-visible styling that forces display
+        indicator.style.cssText = `
+            position: fixed !important;
+            top: 20px !important;
+            right: 20px !important;
+            width: 220px !important;
+            background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
+            color: white !important;
+            padding: 20px !important;
+            border-radius: 15px !important;
+            font-family: 'Arial', sans-serif !important;
+            text-align: center !important;
+            z-index: 999999999 !important;
+            border: 3px solid #00ff41 !important;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.5) !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            transform: none !important;
+        `;
+        
+        // Force append to document
+        const forceAppend = () => {
+            try {
+                if (document.body) {
+                    document.body.appendChild(indicator);
+                    console.log('✅ UI ADDED TO BODY');
+                } else if (document.documentElement) {
+                    document.documentElement.appendChild(indicator);
+                    console.log('✅ UI ADDED TO HTML');
+                } else {
+                    document.appendChild(indicator);
+                    console.log('✅ UI ADDED TO DOCUMENT');
+                }
+            } catch (e) {
+                console.error('❌ Failed to add UI:', e);
+                setTimeout(forceAppend, 500);
+            }
+        };
+        
+        forceAppend();
+        
+        // Double-check it's visible
+        setTimeout(() => {
+            const check = document.getElementById('auto-typer-ui');
+            if (check) {
+                console.log('✅ UI EXISTS AND IS VISIBLE');
+                check.style.display = 'block';
+                check.style.visibility = 'visible';
+            } else {
+                console.log('❌ UI NOT FOUND, RETRYING...');
+                forceCreateUI();
+            }
+        }, 1000);
+        
+        return indicator;
+    }
+    
+    // Update the UI status
+    function updateUI(letter = '', info = '') {
+        if (!statusIndicator) {
+            statusIndicator = forceCreateUI();
+        }
+        
+        const statusDisplay = document.getElementById('status-display');
+        const letterDisplay = document.getElementById('letter-display');
+        
+        if (statusDisplay) {
+            statusDisplay.textContent = autoTypeEnabled ? 'STATUS: ON ✅' : 'STATUS: OFF ❌';
+            statusDisplay.style.background = autoTypeEnabled ? 'rgba(0,255,0,0.3)' : 'rgba(255,255,255,0.2)';
+        }
+        
+        if (letterDisplay) {
+            letterDisplay.textContent = letter ? `LETTER: "${letter}"` : 'LETTER: None found';
+            letterDisplay.style.color = letter ? '#00ff00' : '#ffff00';
+        }
+        
+        // Update border color
+        if (statusIndicator) {
+            statusIndicator.style.borderColor = autoTypeEnabled ? '#00ff00' : '#00ff41';
+        }
+        
+        console.log(`📊 UI Updated - Status: ${autoTypeEnabled ? 'ON' : 'OFF'}, Letter: "${letter}"`);
+    }
+    
+    // ULTRA-OPTIMIZED letter detection - cached and minimal
+    let lastSpanCount = 0;
+    let cachedSpans = [];
+    
+    function findCurrentLetter() {
+        // Cache spans to avoid DOM queries every frame
+        const currentSpanCount = document.querySelectorAll('span').length;
+        if (currentSpanCount !== lastSpanCount) {
+            cachedSpans = Array.from(document.querySelectorAll('span'));
+            lastSpanCount = currentSpanCount;
+        }
+        
+        // Ultra-fast loop through cached spans
+        for (let i = 0; i < cachedSpans.length; i++) {
+            const span = cachedSpans[i];
+            const text = span.textContent;
+            
+            // Quick single character check
+            if (text.length === 1) {
+                const classes = span.className;
+                
+                // Fast green check - only check className (faster than getComputedStyle)
+                if (!classes.includes('bg-green-700') && !classes.includes('bg-green')) {
+                    // Found non-green character
+                    if (text === ' ') {
+                        updateUI('SPACE', `Span ${i}`);
+                        return ' ';
+                    } else {
+                        updateUI(text, `Span ${i}`);
+                        return text;
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    // Helper function for key codes
+    function getKeyCode(char) {
+        const codes = {
+            ' ': 'Space',
+            '(': 'Digit9',
+            ')': 'Digit0',
+            ',': 'Comma',
+            '.': 'Period',
+            '-': 'Minus',
+            '=': 'Equal'
+        };
+        return codes[char] || `Key${char.toUpperCase()}`;
+    }
+    
+    // LUDICROUS SPEED typing - absolutely minimal overhead
+    function typeChar(char) {
+        // Pure speed - no logging, no try/catch overhead
+        
+        // Method 1: execCommand (fastest) - immediate execution
+        const activeEl = document.activeElement || document.body;
+        activeEl.focus();
+        
+        if (document.execCommand) {
+            document.execCommand('insertText', false, char);
+            return;
+        }
+        
+        // Method 2: Direct event dispatch (no variable declarations)
+        const keyCode = char.charCodeAt(0);
+        const code = getKeyCode(char);
+        
+        activeEl.dispatchEvent(new KeyboardEvent('keydown', {
+            key: char, code: code, keyCode: keyCode, which: keyCode, bubbles: true, cancelable: true, view: window
+        }));
+        
+        activeEl.dispatchEvent(new KeyboardEvent('keypress', {
+            key: char, code: code, keyCode: keyCode, which: keyCode, charCode: keyCode, bubbles: true, cancelable: true, view: window
+        }));
+        
+        activeEl.dispatchEvent(new KeyboardEvent('keyup', {
+            key: char, code: code, keyCode: keyCode, which: keyCode, bubbles: true, cancelable: true, view: window
+        }));
+    }
+    
+    // LUDICROUS SPEED typing loop - multiple attempts per frame
+    function startAutoTyping() {
+        if (isTyping) return;
+        
+        console.log('🚀 STARTING LUDICROUS SPEED AUTO TYPING');
+        isTyping = true;
+        
+        const ludicrousSpeed = () => {
+            if (!autoTypeEnabled || !isTyping) {
+                stopAutoTyping();
+                return;
+            }
+            
+            // Try multiple times per frame for maximum speed
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const letter = findCurrentLetter();
+                if (letter) {
+                    typeChar(letter);
+                    
+                    // Only update UI every few attempts to save performance
+                    if (attempt === 0) {
+                        const letterDisplay = document.getElementById('letter-display');
+                        if (letterDisplay) {
+                            const displayLetter = letter === ' ' ? 'SPACE' : letter;
+                            letterDisplay.style.color = '#ff00ff';
+                            letterDisplay.textContent = `TYPING: ${displayLetter}`;
+                        }
+                    }
+                    break; // Exit loop once we type something
+                }
+            }
+            
+            // Continue at maximum frame rate
+            if (autoTypeEnabled && isTyping) {
+                requestAnimationFrame(ludicrousSpeed);
+            }
+        };
+        
+        // Start the ludicrous speed loop
+        requestAnimationFrame(ludicrousSpeed);
+    }
+    
+    function stopAutoTyping() {
+        console.log('⏹️ STOPPING MAXIMUM SPEED AUTO TYPING');
+        isTyping = false;
+        // No interval to clear since we're using requestAnimationFrame
+    }
+    
+    // Toggle auto typing
+    function toggle() {
+        autoTypeEnabled = !autoTypeEnabled;
+        console.log(`🔄 TOGGLED: ${autoTypeEnabled ? 'ON' : 'OFF'}`);
+        
+        updateUI();
+        
+        if (autoTypeEnabled) {
+            startAutoTyping();
+        } else {
+            stopAutoTyping();
+        }
+    }
+    
+    // Setup keyboard listener for MINUS key
+    function setupKeyboard() {
+        console.log('⌨️ Setting up MINUS key listener...');
+        
+        document.addEventListener('keydown', function(e) {
+            console.log(`Key pressed: "${e.key}" (code: ${e.code})`);
+            
+            // MINUS key to toggle
+            if (e.key === '-' || e.code === 'Minus') {
+                e.preventDefault();
+                toggle();
+            }
+            // EQUALS key to stop
+            else if (e.key === '=' || e.code === 'Equal') {
+                e.preventDefault();
+                autoTypeEnabled = false;
+                stopAutoTyping();
+                updateUI();
+            }
+        }, true);
+    }
+    
+    // Initialize everything
+    function initialize() {
+        console.log('🚀 INITIALIZING...');
+        
+        // Create UI immediately
+        statusIndicator = forceCreateUI();
+        updateUI();
+        
+        // Setup keyboard
+        setupKeyboard();
+        
+        // Test detection immediately
+        setTimeout(() => {
+            findCurrentLetter();
+        }, 2000);
+        
+        console.log('✅ INITIALIZATION COMPLETE');
+        console.log('📋 Press MINUS (-) to toggle auto-typing');
+        console.log('📋 Press EQUALS (=) to stop');
+    }
+    
+    // Start when ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        setTimeout(initialize, 100);
+    }
+    
+    // Also try multiple times to ensure it loads
+    setTimeout(initialize, 1000);
+    setTimeout(initialize, 3000);
+    
+})();
