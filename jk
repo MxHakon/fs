@@ -1,0 +1,443 @@
+// ==UserScript==
+// @name         Tiller Auto Typer - Complete
+// @namespace    http://tampermonkey.net/
+// @version      5.0
+// @description  Auto types letters - Press MINUS key to toggle
+// @author       AutoTyper
+// @match        https://tillerquest.tiller.blog/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+    'use strict';
+    
+    console.log('🚀 TILLER AUTO TYPER STARTING...');
+    
+    let autoTypeEnabled = false;
+    let isTyping = false;
+    let typingInterval;
+    let statusIndicator;
+    
+    // Force create visible UI
+    function forceCreateUI() {
+        console.log('🎨 FORCE CREATING UI...');
+        
+        // Remove any existing
+        const existing = document.getElementById('auto-typer-ui');
+        if (existing) {
+            existing.remove();
+            console.log('🗑️ Removed existing UI');
+        }
+        
+        // Create new indicator
+        const indicator = document.createElement('div');
+        indicator.id = 'auto-typer-ui';
+        
+        indicator.innerHTML = `
+            <div style="font-size: 20px; font-weight: bold; margin-bottom: 10px;">🤖 AUTO TYPER</div>
+            <div id="status-display" style="font-size: 16px; padding: 8px; background: rgba(255,255,255,0.2); border-radius: 5px; margin: 8px 0;">
+                STATUS: OFF
+            </div>
+            <div id="letter-display" style="font-size: 14px; margin: 8px 0; color: yellow;">
+                LETTER: Searching...
+            </div>
+            <div style="font-size: 12px; margin-top: 10px; opacity: 0.9; line-height: 1.4;">
+                Press <strong>-</strong> (minus) to toggle<br>
+                Press <strong>=</strong> (equals) to stop
+            </div>
+        `;
+        
+        // Ultra-visible styling that forces display
+        indicator.style.cssText = `
+            position: fixed !important;
+            top: 20px !important;
+            right: 20px !important;
+            width: 220px !important;
+            background: linear-gradient(135deg, #1a1a2e, #16213e) !important;
+            color: white !important;
+            padding: 20px !important;
+            border-radius: 15px !important;
+            font-family: 'Arial', sans-serif !important;
+            text-align: center !important;
+            z-index: 999999999 !important;
+            border: 3px solid #00ff41 !important;
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.5) !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            transform: none !important;
+        `;
+        
+        // Force append to document
+        const forceAppend = () => {
+            try {
+                if (document.body) {
+                    document.body.appendChild(indicator);
+                    console.log('✅ UI ADDED TO BODY');
+                } else if (document.documentElement) {
+                    document.documentElement.appendChild(indicator);
+                    console.log('✅ UI ADDED TO HTML');
+                } else {
+                    document.appendChild(indicator);
+                    console.log('✅ UI ADDED TO DOCUMENT');
+                }
+            } catch (e) {
+                console.error('❌ Failed to add UI:', e);
+                setTimeout(forceAppend, 500);
+            }
+        };
+        
+        forceAppend();
+        
+        // Double-check it's visible
+        setTimeout(() => {
+            const check = document.getElementById('auto-typer-ui');
+            if (check) {
+                console.log('✅ UI EXISTS AND IS VISIBLE');
+                check.style.display = 'block';
+                check.style.visibility = 'visible';
+            } else {
+                console.log('❌ UI NOT FOUND, RETRYING...');
+                forceCreateUI();
+            }
+        }, 1000);
+        
+        return indicator;
+    }
+    
+    // Update the UI status
+    function updateUI(letter = '', info = '') {
+        if (!statusIndicator) {
+            statusIndicator = forceCreateUI();
+        }
+        
+        const statusDisplay = document.getElementById('status-display');
+        const letterDisplay = document.getElementById('letter-display');
+        
+        if (statusDisplay) {
+            statusDisplay.textContent = autoTypeEnabled ? 'STATUS: ON ✅' : 'STATUS: OFF ❌';
+            statusDisplay.style.background = autoTypeEnabled ? 'rgba(0,255,0,0.3)' : 'rgba(255,255,255,0.2)';
+        }
+        
+        if (letterDisplay) {
+            letterDisplay.textContent = letter ? `LETTER: "${letter}"` : 'LETTER: None found';
+            letterDisplay.style.color = letter ? '#00ff00' : '#ffff00';
+        }
+        
+        // Update border color
+        if (statusIndicator) {
+            statusIndicator.style.borderColor = autoTypeEnabled ? '#00ff00' : '#00ff41';
+        }
+        
+        console.log(`📊 UI Updated - Status: ${autoTypeEnabled ? 'ON' : 'OFF'}, Letter: "${letter}"`);
+    }
+    
+    // Improved letter detection that includes spaces
+    function findCurrentLetter() {
+        console.log('🔍 SEARCHING FOR LETTER (including spaces)...');
+        
+        // Method 1: Look for spans that aren't green
+        const spans = document.querySelectorAll('span');
+        console.log(`Found ${spans.length} spans total`);
+        
+        for (let i = 0; i < spans.length; i++) {
+            const span = spans[i];
+            const text = span.textContent;
+            
+            // Check if it's a single character (letter, space, punctuation)
+            // IMPORTANT: Don't trim spaces - we need to detect them!
+            if (text.length === 1) {
+                const classes = span.className || '';
+                const style = window.getComputedStyle(span);
+                const bgColor = style.backgroundColor;
+                
+                // Special logging for spaces
+                if (text === ' ') {
+                    console.log(`🔍 SPACE FOUND at span ${i} | Classes: "${classes}" | BG: "${bgColor}"`);
+                } else {
+                    console.log(`Span ${i}: "${text}" | Classes: "${classes}" | BG: "${bgColor}"`);
+                }
+                
+                // If it's NOT green, it might be the current letter/space
+                const isGreen = classes.includes('bg-green-700') || 
+                               classes.includes('bg-green') ||
+                               bgColor.includes('rgb(21, 128, 61)') ||
+                               bgColor.includes('green');
+                
+                if (!isGreen) {
+                    if (text === ' ') {
+                        console.log(`✅ FOUND SPACE at span ${i}!`);
+                        updateUI('SPACE', `Found space at span ${i}`);
+                        return ' ';
+                    } else {
+                        console.log(`✅ FOUND NON-GREEN LETTER: "${text}"`);
+                        updateUI(text, `Found at span ${i}`);
+                        return text;
+                    }
+                }
+            }
+        }
+        
+        console.log('❌ No letter or space found');
+        updateUI('', 'No letter detected');
+        return null;
+    }
+    
+    // Helper function for key codes
+    function getKeyCode(char) {
+        const codes = {
+            ' ': 'Space',
+            '(': 'Digit9',
+            ')': 'Digit0',
+            ',': 'Comma',
+            '.': 'Period',
+            '-': 'Minus',
+            '=': 'Equal'
+        };
+        return codes[char] || `Key${char.toUpperCase()}`;
+    }
+    
+    // INSANE SPEED typing - handles backspace and normal keys
+    function typeChar(char) {
+        // Handle backspace specially
+        if (char === '\b') {
+            // Backspace key event
+            const activeEl = document.activeElement || document.body;
+            activeEl.focus();
+            
+            const backspaceEvent = new KeyboardEvent('keydown', {
+                key: 'Backspace',
+                code: 'Backspace',
+                keyCode: 8,
+                which: 8,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            
+            activeEl.dispatchEvent(backspaceEvent);
+            
+            const keyupEvent = new KeyboardEvent('keyup', {
+                key: 'Backspace',
+                code: 'Backspace',
+                keyCode: 8,
+                which: 8,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            
+            activeEl.dispatchEvent(keyupEvent);
+            return;
+        }
+        
+        // Normal character typing (optimized for speed)
+        try {
+            const activeEl = document.activeElement || document.body;
+            activeEl.focus();
+            
+            if (document.execCommand) {
+                document.execCommand('insertText', false, char);
+                return; // Fastest method, exit immediately
+            }
+        } catch (e) {
+            // Fall back to keyboard events
+        }
+        
+        // Backup keyboard events (ultra-optimized)
+        const keyCode = char.charCodeAt(0);
+        const activeEl = document.activeElement || document.body;
+        
+        const events = [
+            new KeyboardEvent('keydown', {
+                key: char,
+                code: getKeyCode(char),
+                keyCode: keyCode,
+                which: keyCode,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            }),
+            new KeyboardEvent('keypress', {
+                key: char,
+                code: getKeyCode(char),
+                keyCode: keyCode,
+                which: keyCode,
+                charCode: keyCode,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            }),
+            new KeyboardEvent('keyup', {
+                key: char,
+                code: getKeyCode(char),
+                keyCode: keyCode,
+                which: keyCode,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            })
+        ];
+        
+        // Fire all events instantly
+        events.forEach(event => activeEl.dispatchEvent(event));
+    }
+    
+    // INSANE SPEED typing loop - multiple characters per frame
+    function startAutoTyping() {
+        if (isTyping) return;
+        
+        console.log('🚀 STARTING INSANE SPEED AUTO TYPING WITH MISTAKES');
+        isTyping = true;
+        
+        let frameCount = 0;
+        let mistakesMade = 0;
+        const maxMistakes = 2;
+        
+        // Type multiple characters per frame for insane speed
+        const insaneSpeedType = () => {
+            if (!autoTypeEnabled || !isTyping) {
+                stopAutoTyping();
+                return;
+            }
+            
+            // Type up to 5 characters per frame (300+ characters per second!)
+            for (let i = 0; i < 5; i++) {
+                const letter = findCurrentLetter();
+                if (letter) {
+                    frameCount++;
+                    
+                    // Make intentional mistakes (wrong letter first, then correct)
+                    const shouldMakeMistake = mistakesMade < maxMistakes && Math.random() < 0.15; // 15% chance
+                    
+                    if (shouldMakeMistake) {
+                        // Type a wrong letter first
+                        const wrongLetters = 'abcdefghijklmnopqrstuvwxyz';
+                        const wrongLetter = wrongLetters[Math.floor(Math.random() * wrongLetters.length)];
+                        
+                        if (wrongLetter !== letter.toLowerCase()) {
+                            console.log(`❌ MAKING MISTAKE: typing "${wrongLetter}" instead of "${letter}"`);
+                            typeChar(wrongLetter);
+                            mistakesMade++;
+                            
+                            // Update UI to show mistake
+                            const letterDisplay = document.getElementById('letter-display');
+                            if (letterDisplay) {
+                                letterDisplay.style.color = '#ff0000';
+                                letterDisplay.textContent = `MISTAKE: ${wrongLetter} (should be ${letter === ' ' ? 'SPACE' : letter})`;
+                            }
+                            
+                            // Small delay then backspace and correct
+                            setTimeout(() => {
+                                typeChar('\b'); // Backspace
+                                setTimeout(() => {
+                                    typeChar(letter); // Correct letter
+                                    console.log(`✅ CORRECTED: typed correct "${letter === ' ' ? 'SPACE' : letter}"`);
+                                }, 10);
+                            }, 50);
+                            
+                            return; // Skip the rest of this frame
+                        }
+                    }
+                    
+                    // Type the correct letter
+                    const displayLetter = letter === ' ' ? 'SPACE' : letter;
+                    typeChar(letter);
+                    
+                    // Update UI super fast
+                    const letterDisplay = document.getElementById('letter-display');
+                    if (letterDisplay) {
+                        letterDisplay.style.color = '#00ff00';
+                        letterDisplay.textContent = `INSANE SPEED: ${displayLetter}`;
+                    }
+                } else {
+                    break; // No more letters, exit the loop
+                }
+            }
+            
+            // Continue at maximum frame rate
+            if (autoTypeEnabled && isTyping) {
+                requestAnimationFrame(insaneSpeedType);
+            }
+        };
+        
+        // Start the insane speed loop
+        requestAnimationFrame(insaneSpeedType);
+    }
+    
+    function stopAutoTyping() {
+        console.log('⏹️ STOPPING MAXIMUM SPEED AUTO TYPING');
+        isTyping = false;
+        // No interval to clear since we're using requestAnimationFrame
+    }
+    
+    // Toggle auto typing
+    function toggle() {
+        autoTypeEnabled = !autoTypeEnabled;
+        console.log(`🔄 TOGGLED: ${autoTypeEnabled ? 'ON' : 'OFF'}`);
+        
+        updateUI();
+        
+        if (autoTypeEnabled) {
+            startAutoTyping();
+        } else {
+            stopAutoTyping();
+        }
+    }
+    
+    // Setup keyboard listener for MINUS key
+    function setupKeyboard() {
+        console.log('⌨️ Setting up MINUS key listener...');
+        
+        document.addEventListener('keydown', function(e) {
+            console.log(`Key pressed: "${e.key}" (code: ${e.code})`);
+            
+            // MINUS key to toggle
+            if (e.key === '-' || e.code === 'Minus') {
+                e.preventDefault();
+                toggle();
+            }
+            // EQUALS key to stop
+            else if (e.key === '=' || e.code === 'Equal') {
+                e.preventDefault();
+                autoTypeEnabled = false;
+                stopAutoTyping();
+                updateUI();
+            }
+        }, true);
+    }
+    
+    // Initialize everything
+    function initialize() {
+        console.log('🚀 INITIALIZING...');
+        
+        // Create UI immediately
+        statusIndicator = forceCreateUI();
+        updateUI();
+        
+        // Setup keyboard
+        setupKeyboard();
+        
+        // Test detection immediately
+        setTimeout(() => {
+            findCurrentLetter();
+        }, 2000);
+        
+        console.log('✅ INITIALIZATION COMPLETE');
+        console.log('📋 Press MINUS (-) to toggle auto-typing');
+        console.log('📋 Press EQUALS (=) to stop');
+    }
+    
+    // Start when ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        setTimeout(initialize, 100);
+    }
+    
+    // Also try multiple times to ensure it loads
+    setTimeout(initialize, 1000);
+    setTimeout(initialize, 3000);
+    
+})();
